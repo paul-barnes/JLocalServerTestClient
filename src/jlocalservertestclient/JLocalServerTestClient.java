@@ -92,8 +92,6 @@ public class JLocalServerTestClient {
             Process p = Runtime.getRuntime().exec(cmd, null, new File(System.getenv("STACLI_HOME")));
             
             RandomAccessFile pipe = openPipe(pipeName);
-//            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(pipe.getFD()), UTF8_CHARSET));
-//            BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(pipe.getFD()), UTF8_CHARSET));
                         
             Scanner stdin = new Scanner(System.in);
             while(true){
@@ -101,11 +99,6 @@ public class JLocalServerTestClient {
                 String input = stdin.nextLine();
                 if (input == null || input.isEmpty()) 
                     break;
-
-//                writer.write(input);
-//                writer.newLine();
-//                writer.flush();
-//                System.out.println(reader.readLine());
 
                 writeLine(pipe, input);
                 System.out.println(readLine(pipe));
