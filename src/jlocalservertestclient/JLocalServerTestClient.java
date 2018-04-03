@@ -39,7 +39,6 @@ public class JLocalServerTestClient {
             throw new EOFException("An error occurred while reading from the pipe. The STAT.EXE process may have ended.");
         }
         return decodeUTF8(bytes.toByteArray());
-        
     }
     
     static void writeLine(RandomAccessFile pipe, String line) throws IOException {
