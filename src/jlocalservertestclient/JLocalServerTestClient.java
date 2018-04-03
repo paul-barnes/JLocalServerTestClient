@@ -28,16 +28,27 @@ public class JLocalServerTestClient {
     static String readLine(RandomAccessFile pipe) throws IOException {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         byte b=0;
-        while(b != '\n'){
-            b = pipe.readByte();
-            if(b != '\r' && b != '\n')
-                bytes.write(b);
+        try {
+            while(b != '\n'){
+                b = pipe.readByte();
+                if(b != '\r' && b != '\n')
+                    bytes.write(b);
+            }
+        }
+        catch(EOFException e){
+            throw new EOFException("An error occurred while reading from the pipe. The STAT.EXE process may have ended.");
         }
         return decodeUTF8(bytes.toByteArray());
+        
     }
     
-    static RandomAccessFile openPipe(String pipeName) {
-        // Must wait for STAT.EXE to create the named pipe before the open will succeed
+    static void writeLine(RandomAccessFile pipe, String line) throws IOException {
+        pipe.write(encodeUTF8(line + "\n"));
+    }
+    
+    static RandomAccessFile openPipe(String pipeName) throws InterruptedException, Exception{
+        // Must wait for STAT.EXE to create the named pipe before the open will succeed;
+        // Here we will retry periodically for a while and then fail if it cannot be opened
         RandomAccessFile pipe = null;
         Instant then = Instant.now().plusSeconds(10);
         while(Instant.now().isBefore(then)){
@@ -77,53 +88,29 @@ public class JLocalServerTestClient {
                 cmd += " --log-file stat.log";
                 System.out.println("STAT.EXE writing to log file 'stat.log'");
             }
-            System.out.println("Command line: " + cmd);
             
             Process p = Runtime.getRuntime().exec(cmd, null, new File(System.getenv("STACLI_HOME")));
             
-            RandomAccessFile pipe = null;
-            
-            // Must wait for STAT.EXE to create the named pipe before the open will succeed
-            Instant then = Instant.now().plusSeconds(10);
-            while(Instant.now().isBefore(then)){
-                Thread.sleep(200);
-                try{
-                    pipe = new RandomAccessFile("\\\\.\\pipe\\" + pipeName, "rw");
-                    break;
-                }
-                catch(FileNotFoundException e){
-                }
-            }
-            if(pipe == null){
-                throw new Exception("Failed to connect to the pipe");
-            }
-            
+            RandomAccessFile pipe = openPipe(pipeName);
+//            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(pipe.getFD()), UTF8_CHARSET));
+//            BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(pipe.getFD()), UTF8_CHARSET));
+                        
             Scanner stdin = new Scanner(System.in);
             while(true){
                 System.out.println("Enter STAT.EXE run verb arguments (without the 'run') to submit task(s) for execution. Enter blank line to exit.");
                 String input = stdin.nextLine();
                 if (input == null || input.isEmpty()) 
                     break;
-                pipe.write(encodeUTF8(input + "\n"));
 
+//                writer.write(input);
+//                writer.newLine();
+//                writer.flush();
+//                System.out.println(reader.readLine());
+
+                writeLine(pipe, input);
                 System.out.println(readLine(pipe));
                 System.out.println();
             }
-//            String echoText = "Hello word\n";
-//            // write to pipe
-//            pipe.write ( echoText.getBytes() );
-//            // read response
-//            String echoResponse = pipe.readLine();
-//            System.out.println("Response: " + echoResponse );
-//            pipe.close();            
-
-
-//            BufferedReader input = new BufferedReader(new InputStreamReader(p.getInputStream()));
-//            String line;
-//            while ((line = input.readLine()) != null) {
-//                System.out.println(line);
-//            }
-//            input.close();
         }
         catch(Exception e){
             System.out.println("Error: " + e.getMessage());
