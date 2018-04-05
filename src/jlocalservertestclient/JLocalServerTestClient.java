@@ -9,6 +9,7 @@ import java.io.*;
 import java.time.*;
 import java.util.*;
 import java.nio.charset.Charset;
+import java.util.concurrent.TimeoutException;
 
 /**
  *
@@ -20,6 +21,7 @@ public class JLocalServerTestClient {
      * @param args the command line arguments
      */
     public static void main(String[] args) {
+        StatServer srv=null;
         try {
             if (args.length > 0 && (args[0] == "-h" || args[0] == "--help")) {
                 System.out.println("Launches STAT.EXE in localserver mode, then submits 'run' verb commands to it.");
@@ -28,13 +30,13 @@ public class JLocalServerTestClient {
                 return;
             }
 
-            StatServer srv = new StatServer(args);
+            srv = new StatServer(args);
             Scanner stdin = new Scanner(System.in);
 
             while (true) {
                 
                 if (!srv.isAlive()) {
-                    System.out.println("No longer connected to the pipe. The server process may have ended. Attempting to start a new STAT process.");
+                    System.out.println("The server is not responding. Attempting to start a new STAT process.");
                     srv.close();
                     srv = new StatServer(args);
                 }
@@ -45,19 +47,30 @@ public class JLocalServerTestClient {
                     break;
 
                 if (!srv.isAlive()){
-                    System.out.println("No longer connected to the pipe. The server process may have ended. Attempting to start a new STAT process.");
+                    System.out.println("The server is not responding. Attempting to start a new STAT process.");
                     srv.close();
                     srv = new StatServer(args);
                     System.out.println(String.format("Successfully connected to a new STAT process. Sending the command [%s]", input));
                 }
                 
-                String reply = srv.sendMessageAndGetReply(input);
-
-                System.out.println(reply);
-                System.out.println();
+                try{
+                    String reply = srv.sendMessageAndGetReply(input);
+                    System.out.println(reply);
+                    System.out.println();
+                }
+                catch(TimeoutException e){
+                    System.out.println("The operation timed out. Attempting to close STAT process and create a new one.");
+                    srv.close();
+                    srv = new StatServer(args);
+                    System.out.println("Successfully connected to a new STAT process");
+                }
             }
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
+        }
+        finally{
+            if(srv != null)
+                srv.close();
         }
     }
 

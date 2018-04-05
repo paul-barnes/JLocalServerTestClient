@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.charset.Charset;
 import java.time.Instant;
+import java.util.concurrent.*;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -24,7 +25,9 @@ public class StatServer {
     private String _pipeName;
     private Process _statProcess;
     private RandomAccessFile _pipe;
-
+    private ExecutorService _executorService;
+    
+    private final static int TIMEOUT_INTERVAL_SECONDS = 5;
     private final static Charset UTF8_CHARSET = Charset.forName("UTF-8");
 
     static String decodeUTF8(byte[] bytes) {
@@ -36,52 +39,117 @@ public class StatServer {
     }
 
     public StatServer(String[] args) throws IOException, InterruptedException, Exception {
+        _executorService = Executors.newFixedThreadPool(1);
         _pipeName = java.util.UUID.randomUUID().toString();
         _statProcess = createSTATProcess(_pipeName, args);
         _pipe = connectPipe(_pipeName);
     }
 
+    void shutdownExecutor(ExecutorService pool) {
+        pool.shutdown(); // Disable new tasks from being submitted
+        try {
+            // Wait a while for existing tasks to terminate
+            if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
+                pool.shutdownNow(); // Cancel currently executing tasks
+                // Wait a while for tasks to respond to being cancelled
+                if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
+                    System.err.println("Pool did not terminate");
+                }
+            }
+        } catch (InterruptedException ie) {
+            // (Re-)Cancel if current thread also interrupted
+            pool.shutdownNow();
+            // Preserve interrupt status
+            Thread.currentThread().interrupt();
+        }
+    }
+
     public void close(){
         try{
-            _pipe.close();
-            if(!_statProcess.waitFor(5, TimeUnit.SECONDS))
-                _statProcess.destroyForcibly();
+            if(_executorService != null)
+               shutdownExecutor(_executorService);
+            if(_pipe != null)
+                _pipe.close();
+            if(_statProcess != null)
+                if(!_statProcess.waitFor(5, TimeUnit.SECONDS))
+                    _statProcess.destroyForcibly();
         }
         catch(Exception e) {
         }
+        _executorService = null;
         _pipeName = null;
         _statProcess = null;
         _pipe = null;
     }
-    public void sendMessage(String msg) throws IOException {
-        _pipe.write(encodeUTF8(msg + "\n"));
+    
+    public void sendMessage(String msg) throws IOException, InterruptedException, ExecutionException, TimeoutException {
+        sendMessage(msg, TIMEOUT_INTERVAL_SECONDS);
     }
-
-    public String getReply() throws IOException {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        byte b = 0;
-        try {
-            while (b != '\n') {
-                b = _pipe.readByte();
-                if (b != '\r' && b != '\n') {
-                    bytes.write(b);
-                }
+    
+    public void sendMessage(String msg, int timeoutIntervalSeconds) throws IOException, InterruptedException, ExecutionException, TimeoutException {
+        Future future = _executorService.submit(new Callable<Void>() {
+            public Void call() throws Exception {
+                _pipe.write(encodeUTF8(msg + "\n"));
+                return null;
             }
-        } catch (EOFException e) {
-            throw new EOFException("An error occurred while reading from the pipe. The STAT.EXE process may have ended.");
+        });
+        
+        try {
+            future.get(timeoutIntervalSeconds, TimeUnit.SECONDS);
+        } 
+        catch(TimeoutException e){
+            boolean b = future.cancel(true);
+            System.out.println(String.format("TIMEOUT in sendMessage; cancel returned %s", b ? "true" : "false"));
+            throw e;
         }
-        return decodeUTF8(bytes.toByteArray());
     }
 
-    public String sendMessageAndGetReply(String msg) throws IOException {
-        sendMessage(msg);
-        return getReply();
+    public String getReply() throws IOException, InterruptedException, ExecutionException, TimeoutException {
+        return getReply(TIMEOUT_INTERVAL_SECONDS);
+    }
+
+    public String getReply(int timeoutIntervalSeconds) throws IOException, InterruptedException, ExecutionException, TimeoutException {
+        Future future = _executorService.submit(new Callable<String>() {
+            public String call() throws Exception {
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                byte b = 0;
+                try {
+                    while (b != '\n') {
+                        b = _pipe.readByte();
+                        if (b != '\r' && b != '\n') {
+                            bytes.write(b);
+                        }
+                    }
+                } catch (EOFException e) {
+                    throw new EOFException("An error occurred while reading from the pipe. The STAT.EXE process may have ended.");
+                }
+                return decodeUTF8(bytes.toByteArray());
+            }
+        });
+        
+        try {
+            return (String)future.get(timeoutIntervalSeconds, TimeUnit.SECONDS);
+        } 
+        catch(TimeoutException e){
+            boolean b = future.cancel(true);
+            System.out.println(String.format("TIMEOUT in getReply; cancel returned %s", b ? "true" : "false"));
+            throw e;
+        }
+    }
+
+    public String sendMessageAndGetReply(String msg, int timeoutIntervalSeconds) throws IOException, InterruptedException, ExecutionException, TimeoutException {
+        sendMessage(msg, timeoutIntervalSeconds);
+        return getReply(timeoutIntervalSeconds);
+    }
+    public String sendMessageAndGetReply(String msg) throws IOException, InterruptedException, ExecutionException, TimeoutException {
+        return sendMessageAndGetReply(msg, TIMEOUT_INTERVAL_SECONDS);
     }
 
     public boolean isAlive() {
         try {
-            if (_statProcess.isAlive()) {
-                if (sendMessageAndGetReply("alive").equals("OK"))
+            if (_statProcess != null && _statProcess.isAlive()) {
+                int timeoutSeconds = 3;
+                if (sendMessageAndGetReply("alive", timeoutSeconds).equals("OK"))
                     return true;
             }
         } catch (Exception e) {
