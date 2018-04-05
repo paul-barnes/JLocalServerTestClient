@@ -49,10 +49,10 @@ public class StatServer {
         pool.shutdown(); // Disable new tasks from being submitted
         try {
             // Wait a while for existing tasks to terminate
-            if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
+            if (!pool.awaitTermination(2, TimeUnit.SECONDS)) {
                 pool.shutdownNow(); // Cancel currently executing tasks
                 // Wait a while for tasks to respond to being cancelled
-                if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
+                if (!pool.awaitTermination(2, TimeUnit.SECONDS)) {
                     System.err.println("Pool did not terminate");
                 }
             }
@@ -64,17 +64,44 @@ public class StatServer {
         }
     }
 
-    public void close(){
-        try{
-            if(_executorService != null)
-               shutdownExecutor(_executorService);
-            if(_pipe != null)
-                _pipe.close();
-            if(_statProcess != null)
-                if(!_statProcess.waitFor(5, TimeUnit.SECONDS))
+    public void close() {
+        try {
+            if (_executorService != null)
+                shutdownExecutor(_executorService);
+            
+            if (_pipe != null) {
+                // _pipe.close will end the STAT server process id it is listening
+                // however it will block if the server is not responding/hung. 
+                // execute in separate thread and kill the process if it does not respond
+                Thread thread = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        System.out.println("calling _pipe.close");
+                        try {
+                            _pipe.close();
+                            System.out.println("_pipe.close returned");
+                        }
+                        catch(Exception e){
+                            System.out.println("_pipe.close threw an exception");
+                            e.printStackTrace();
+                        }
+                    }
+                });
+                thread.setName("PipeShutdownThread");
+                thread.start();
+                
+                // wait for millis milliseconds for the thread to finish
+                int millis = 1000;
+                thread.join(millis);
+            }
+            if (_statProcess != null) {
+                if (!_statProcess.waitFor(1, TimeUnit.SECONDS)) {
+                    // if the stat process did not shut down cleanly when we closed the pipe, kill it now
+                    System.out.println("STAT process has not shut down. Killing it.");
                     _statProcess.destroyForcibly();
-        }
-        catch(Exception e) {
+                }
+            }
+        } catch (Exception e) {
         }
         _executorService = null;
         _pipeName = null;
