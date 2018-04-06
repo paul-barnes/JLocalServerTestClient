@@ -30,28 +30,22 @@ public class JLocalServerTestClient {
                 return;
             }
 
-            srv = new StatServer(args);
+            srv = new StatServer();
+            srv.startServer(args);
+
             Scanner stdin = new Scanner(System.in);
 
             while (true) {
                 
-                if (!srv.isAlive()) {
-                    System.out.println("The server is not responding. Attempting to start a new STAT process.");
-                    srv.close();
-                    srv = new StatServer(args);
-                }
-
+                checkServer(srv, args);
+                
                 System.out.println("Enter STAT.EXE run verb arguments (without the 'run') to submit task(s) for execution. Enter blank line to exit.");
                 String input = stdin.nextLine();
                 if (input == null || input.isEmpty())
                     break;
 
-                if (!srv.isAlive()){
-                    System.out.println("The server is not responding. Attempting to start a new STAT process.");
-                    srv.close();
-                    srv = new StatServer(args);
-                    System.out.println(String.format("Successfully connected to a new STAT process. Sending the command [%s]", input));
-                }
+                if(!checkServer(srv, args))
+                    System.err.println(String.format("STAT process was restarted. Sending the command [%s]", input));
                 
                 try{
                     String reply = srv.sendMessageAndGetReply(input);
@@ -59,14 +53,15 @@ public class JLocalServerTestClient {
                     System.out.println();
                 }
                 catch(TimeoutException e){
-                    System.out.println("The operation timed out. Attempting to close STAT process and create a new one.");
+                    System.err.println("The operation timed out. Attempting to close STAT process and create a new one.");
                     srv.close();
-                    srv = new StatServer(args);
-                    System.out.println("Successfully connected to a new STAT process");
+                    srv.startServer(args);
+                    System.err.println("Successfully connected to a new STAT process");
                 }
             }
         } catch (Exception e) {
-            System.out.println("Error: " + e.getMessage());
+            System.err.println("A fatal error occured:");
+            e.printStackTrace();
         }
         finally{
             if(srv != null)
@@ -74,4 +69,14 @@ public class JLocalServerTestClient {
         }
     }
 
+    private static boolean checkServer(StatServer srv, String[] args) throws IOException, InterruptedException, Exception {
+        if (!srv.isAlive()) {
+            System.err.println("The server is not responding. Attempting to start a new STAT process.");
+            srv.close();
+            srv.startServer(args);
+            System.err.println("Successfully connected to a new STAT process");
+            return false;
+        }
+        return true;
+    }
 }

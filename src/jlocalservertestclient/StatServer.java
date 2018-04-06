@@ -27,7 +27,7 @@ public class StatServer {
     private RandomAccessFile _pipe;
     private ExecutorService _executorService;
     
-    private final static int TIMEOUT_INTERVAL_SECONDS = 5;
+    private final static int TIMEOUT_INTERVAL_SECONDS = 10;
     private final static Charset UTF8_CHARSET = Charset.forName("UTF-8");
 
     static String decodeUTF8(byte[] bytes) {
@@ -38,37 +38,54 @@ public class StatServer {
         return string.getBytes(UTF8_CHARSET);
     }
 
-    public StatServer(String[] args) throws IOException, InterruptedException, Exception {
+    public StatServer()  {
+        _executorService = null;
+        _pipeName = null;
+        _statProcess = null;
+        _pipe = null;
+    }
+    
+    public void startServer(String[] args) throws IOException, InterruptedException, Exception {
         _executorService = Executors.newFixedThreadPool(1);
         _pipeName = java.util.UUID.randomUUID().toString();
         _statProcess = createSTATProcess(_pipeName, args);
         _pipe = connectPipe(_pipeName);
     }
 
-    void shutdownExecutor(ExecutorService pool) {
-        pool.shutdown(); // Disable new tasks from being submitted
-        try {
-            // Wait a while for existing tasks to terminate
-            if (!pool.awaitTermination(2, TimeUnit.SECONDS)) {
-                pool.shutdownNow(); // Cancel currently executing tasks
-                // Wait a while for tasks to respond to being cancelled
-                if (!pool.awaitTermination(2, TimeUnit.SECONDS)) {
-                    System.err.println("Pool did not terminate");
+    private void shutdownExecutor() {
+
+        if (_executorService == null)
+            return;
+
+        try{
+            _executorService.shutdown(); // Disable new tasks from being submitted
+            try {
+                // Wait a while for existing tasks to terminate
+                if (!_executorService.awaitTermination(2, TimeUnit.SECONDS)) {
+                    _executorService.shutdownNow(); // Cancel currently executing tasks
+                    // Wait a while for tasks to respond to being cancelled
+                    if (!_executorService.awaitTermination(2, TimeUnit.SECONDS)) {
+                        System.err.println("TRACE: Pool did not terminate");
+                    }
                 }
+            } catch (InterruptedException ie) {
+                // (Re-)Cancel if current thread also interrupted
+                _executorService.shutdownNow();
+                // Preserve interrupt status
+                Thread.currentThread().interrupt();
             }
-        } catch (InterruptedException ie) {
-            // (Re-)Cancel if current thread also interrupted
-            pool.shutdownNow();
-            // Preserve interrupt status
-            Thread.currentThread().interrupt();
+        }
+        catch(Exception e){
+            System.err.println("Exception occured in StatServer.shutdownExecutor:");
+            e.printStackTrace();
+        }
+        finally{
+            _executorService = null;
         }
     }
 
-    public void close() {
-        try {
-            if (_executorService != null)
-                shutdownExecutor(_executorService);
-            
+    private void closePipe(){
+        try{
             if (_pipe != null) {
                 // _pipe.close will end the STAT server process id it is listening
                 // however it will block if the server is not responding/hung. 
@@ -76,13 +93,13 @@ public class StatServer {
                 Thread thread = new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        System.out.println("calling _pipe.close");
+                        System.out.println("TRACE: calling _pipe.close");
                         try {
                             _pipe.close();
-                            System.out.println("_pipe.close returned");
+                            System.out.println("TRACE: _pipe.close returned");
                         }
                         catch(Exception e){
-                            System.out.println("_pipe.close threw an exception");
+                            System.err.println("_pipe.close threw an exception");
                             e.printStackTrace();
                         }
                     }
@@ -94,19 +111,43 @@ public class StatServer {
                 int millis = 1000;
                 thread.join(millis);
             }
+        }
+        catch(Exception e){
+            System.err.println("Exception occured in StatServer.closePipe:");
+            e.printStackTrace();
+        }
+        finally{
+            _pipe = null;
+        }
+    }
+
+    private void shutdownServer(){
+        try{
             if (_statProcess != null) {
+                
+                if(_pipe != null)
+                    closePipe();
+                
+                // closing the pipe should have closed the server, if it was in a healthy state
                 if (!_statProcess.waitFor(1, TimeUnit.SECONDS)) {
                     // if the stat process did not shut down cleanly when we closed the pipe, kill it now
-                    System.out.println("STAT process has not shut down. Killing it.");
+                    System.err.println("TRACE: STAT process has not shut down. Killing it.");
                     _statProcess.destroyForcibly();
                 }
             }
         } catch (Exception e) {
+            System.err.println("Exception occured in StatServer.shutdownServer:");
+            e.printStackTrace();
         }
-        _executorService = null;
+        finally{
+            _statProcess = null;
+        }
+    }
+    public void close() {
+        shutdownExecutor();
+        closePipe();
+        shutdownServer();
         _pipeName = null;
-        _statProcess = null;
-        _pipe = null;
     }
     
     public void sendMessage(String msg) throws IOException, InterruptedException, ExecutionException, TimeoutException {
@@ -125,8 +166,8 @@ public class StatServer {
             future.get(timeoutIntervalSeconds, TimeUnit.SECONDS);
         } 
         catch(TimeoutException e){
-            boolean b = future.cancel(true);
-            System.out.println(String.format("TIMEOUT in sendMessage; cancel returned %s", b ? "true" : "false"));
+            future.cancel(true);
+            System.err.println("Timeout in StatServer.sendMessage");
             throw e;
         }
     }
@@ -135,7 +176,9 @@ public class StatServer {
         return getReply(TIMEOUT_INTERVAL_SECONDS);
     }
 
-    public String getReply(int timeoutIntervalSeconds) throws IOException, InterruptedException, ExecutionException, TimeoutException {
+    public String getReply(int timeoutIntervalSeconds) 
+            throws IOException, InterruptedException, ExecutionException, TimeoutException {
+        
         Future future = _executorService.submit(new Callable<String>() {
             public String call() throws Exception {
                 ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -158,17 +201,20 @@ public class StatServer {
             return (String)future.get(timeoutIntervalSeconds, TimeUnit.SECONDS);
         } 
         catch(TimeoutException e){
-            boolean b = future.cancel(true);
-            System.out.println(String.format("TIMEOUT in getReply; cancel returned %s", b ? "true" : "false"));
+            System.err.println("Timeout in StatServer.getReply");
             throw e;
         }
     }
 
-    public String sendMessageAndGetReply(String msg, int timeoutIntervalSeconds) throws IOException, InterruptedException, ExecutionException, TimeoutException {
+    public String sendMessageAndGetReply(String msg, int timeoutIntervalSeconds) 
+            throws IOException, InterruptedException, ExecutionException, TimeoutException {
+
         sendMessage(msg, timeoutIntervalSeconds);
         return getReply(timeoutIntervalSeconds);
     }
-    public String sendMessageAndGetReply(String msg) throws IOException, InterruptedException, ExecutionException, TimeoutException {
+    public String sendMessageAndGetReply(String msg) 
+            throws IOException, InterruptedException, ExecutionException, TimeoutException {
+        
         return sendMessageAndGetReply(msg, TIMEOUT_INTERVAL_SECONDS);
     }
 
@@ -180,20 +226,24 @@ public class StatServer {
                     return true;
             }
         } catch (Exception e) {
+            System.err.println("Exception in isAlive. Returning false.");
+            e.printStackTrace();
         }
         return false;
     }
 
+    private static boolean firstTimeCreateProcess = true;
+    
     private static Process createSTATProcess(String pipeName, String[] args) throws IOException {
         String cmd = System.getenv("STACLI_HOME") + "\\STAT.EXE localserver --pipe " + pipeName;
-        if (args.length > 0) {
+        if (args.length > 0) 
             cmd += " " + String.join(" ", args);
-        }
         if (!cmd.contains("--log-file")) {
             cmd += " --log-file stat.log";
-            System.out.println("STAT.EXE writing to log file 'stat.log'");
+            if(firstTimeCreateProcess)
+                System.out.println("STAT.EXE writing to log file 'stat.log'");
         }
-
+        firstTimeCreateProcess = false;
         Process p = Runtime.getRuntime().exec(cmd, null, new File(System.getenv("STACLI_HOME")));
         return p;
     }
@@ -212,9 +262,8 @@ public class StatServer {
             }
         }
         if (pipe == null) {
-            throw new Exception("Failed to connect to the pipe");
+            throw new Exception("StatServer failed to connect to the pipe");
         }
         return pipe;
     }
-
 }
