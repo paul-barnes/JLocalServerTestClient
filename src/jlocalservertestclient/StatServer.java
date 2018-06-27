@@ -47,7 +47,7 @@ public class StatServer {
     
     public void startServer(String[] args) throws IOException, InterruptedException, Exception {
         _executorService = Executors.newFixedThreadPool(1);
-        _pipeName = java.util.UUID.randomUUID().toString();
+        _pipeName = "\\\\.\\Pipe\\" + java.util.UUID.randomUUID().toString();
         _statProcess = createSTATProcess(_pipeName, args);
         _pipe = connectPipe(_pipeName);
     }
@@ -235,7 +235,7 @@ public class StatServer {
     private static boolean firstTimeCreateProcess = true;
     
     private static Process createSTATProcess(String pipeName, String[] args) throws IOException {
-        String cmd = System.getenv("STACLI_HOME") + "\\STAT.EXE localserver --pipe " + pipeName;
+        String cmd = System.getenv("STACLI_HOME") + "\\STAT.EXE listen " + pipeName;
         if (args.length > 0) 
             cmd += " " + String.join(" ", args);
         if (!cmd.contains("--log-file")) {
@@ -256,7 +256,7 @@ public class StatServer {
         while (Instant.now().isBefore(then)) {
             Thread.sleep(200);
             try {
-                pipe = new RandomAccessFile("\\\\.\\pipe\\" + pipeName, "rw");
+                pipe = new RandomAccessFile(pipeName, "rw");
                 break;
             } catch (FileNotFoundException e) {
             }
