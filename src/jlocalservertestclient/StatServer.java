@@ -5,12 +5,7 @@
  */
 package jlocalservertestclient;
 
-import java.io.ByteArrayOutputStream;
-import java.io.EOFException;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.*;
 import java.nio.charset.Charset;
 import java.time.Instant;
 import java.util.concurrent.*;
@@ -26,6 +21,8 @@ public class StatServer {
     private Process _statProcess;
     private RandomAccessFile _pipe;
     private ExecutorService _executorService;
+    private InputStream _stdOut;
+    private InputStream _stdErr;
     
     private final static int TIMEOUT_INTERVAL_SECONDS = 10;
     private final static Charset UTF8_CHARSET = Charset.forName("UTF-8");
@@ -43,12 +40,16 @@ public class StatServer {
         _pipeName = null;
         _statProcess = null;
         _pipe = null;
+        _stdOut = null;
+        _stdErr = null;
     }
     
     public void startServer(String[] args) throws IOException, InterruptedException, Exception {
         _executorService = Executors.newFixedThreadPool(1);
-        _pipeName = "\\\\.\\Pipe\\" + java.util.UUID.randomUUID().toString();
+        _pipeName = "\\\\.\\Pipe\\jstat-" + java.util.UUID.randomUUID().toString();
         _statProcess = createSTATProcess(_pipeName, args);
+        _stdOut = _statProcess.getInputStream();
+        _stdErr = _statProcess.getErrorStream();
         _pipe = connectPipe(_pipeName);
     }
 
@@ -128,6 +129,13 @@ public class StatServer {
                 if(_pipe != null)
                     closePipe();
                 
+                if(_stdOut != null)
+                    _stdOut.close();
+                if(_stdErr != null)
+                    _stdErr.close();
+                _stdOut = null;
+                _stdErr = null;
+                
                 // closing the pipe should have closed the server, if it was in a healthy state
                 if (!_statProcess.waitFor(1, TimeUnit.SECONDS)) {
                     // if the stat process did not shut down cleanly when we closed the pipe, kill it now
@@ -150,6 +158,26 @@ public class StatServer {
         _pipeName = null;
     }
     
+    private static String readAllAvailable(InputStream inputStream) throws IOException {
+        if (inputStream.available() > 0) {
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            byte[] buffer = new byte[256];
+            int bytesRead = 0;
+            while (inputStream.available() > 0 && (bytesRead = inputStream.read(buffer)) >= 0)
+                outputStream.write(buffer, 0, bytesRead);
+            return outputStream.toString();
+        }
+        return new String();
+    }
+    
+    public String getStdOut() throws IOException {
+        return readAllAvailable(_stdOut);
+    }
+
+    public String getStdErr() throws IOException {
+        return readAllAvailable(_stdErr);
+    }
+
     public void sendMessage(String msg) throws IOException, InterruptedException, ExecutionException, TimeoutException {
         sendMessage(msg, TIMEOUT_INTERVAL_SECONDS);
     }
@@ -172,15 +200,15 @@ public class StatServer {
         }
     }
 
-    public String getReply() throws IOException, InterruptedException, ExecutionException, TimeoutException {
+    public int getReply() throws IOException, InterruptedException, ExecutionException, TimeoutException {
         return getReply(TIMEOUT_INTERVAL_SECONDS);
     }
 
-    public String getReply(int timeoutIntervalSeconds) 
+    public int getReply(int timeoutIntervalSeconds) 
             throws IOException, InterruptedException, ExecutionException, TimeoutException {
         
-        Future future = _executorService.submit(new Callable<String>() {
-            public String call() throws Exception {
+        Future future = _executorService.submit(new Callable<Integer>() {
+            public Integer call() throws Exception {
                 ByteArrayOutputStream bytes = new ByteArrayOutputStream();
                 byte b = 0;
                 try {
@@ -193,12 +221,12 @@ public class StatServer {
                 } catch (EOFException e) {
                     throw new EOFException("An error occurred while reading from the pipe. The STAT.EXE process may have ended.");
                 }
-                return decodeUTF8(bytes.toByteArray());
+                return Integer.parseInt(decodeUTF8(bytes.toByteArray()));
             }
         });
         
         try {
-            return (String)future.get(timeoutIntervalSeconds, TimeUnit.SECONDS);
+            return (int)future.get(timeoutIntervalSeconds, TimeUnit.SECONDS);
         } 
         catch(TimeoutException e){
             System.err.println("Timeout in StatServer.getReply");
@@ -206,13 +234,13 @@ public class StatServer {
         }
     }
 
-    public String sendMessageAndGetReply(String msg, int timeoutIntervalSeconds) 
+    public int sendMessageAndGetReply(String msg, int timeoutIntervalSeconds) 
             throws IOException, InterruptedException, ExecutionException, TimeoutException {
 
         sendMessage(msg, timeoutIntervalSeconds);
         return getReply(timeoutIntervalSeconds);
     }
-    public String sendMessageAndGetReply(String msg) 
+    public int sendMessageAndGetReply(String msg) 
             throws IOException, InterruptedException, ExecutionException, TimeoutException {
         
         return sendMessageAndGetReply(msg, TIMEOUT_INTERVAL_SECONDS);
@@ -222,7 +250,7 @@ public class StatServer {
         try {
             if (_statProcess != null && _statProcess.isAlive()) {
                 int timeoutSeconds = 3;
-                if (sendMessageAndGetReply("alive", timeoutSeconds).equals("OK"))
+                if (sendMessageAndGetReply("alive", timeoutSeconds) == 0)
                     return true;
             }
         } catch (Exception e) {

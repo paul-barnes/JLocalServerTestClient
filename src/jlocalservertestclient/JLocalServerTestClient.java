@@ -1,4 +1,4 @@
-alive/*
+/*
  * To change this license header, choose License Headers in Project Properties.
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
@@ -33,13 +33,18 @@ public class JLocalServerTestClient {
             srv = new StatServer();
             srv.startServer(args);
 
+            String stdOut = srv.getStdOut();
+            String stdErr = srv.getStdErr();
+            
+            // write the logging info from std out
+            //using (new SetConsoleTextColor(ConsoleColor.DarkGray))
+            System.out.println(stdOut);
+
             Scanner stdin = new Scanner(System.in);
 
             while (true) {
                 
-                checkServer(srv, args);
-                
-                System.out.println("Enter STAT.EXE run verb arguments (without the 'run') to submit task(s) for execution. Enter blank line to exit.");
+                System.out.println("Enter STAT.EXE run command to submit task(s) for execution. Enter blank line to exit.");
                 String input = stdin.nextLine();
                 if (input == null || input.isEmpty())
                     break;
@@ -48,8 +53,26 @@ public class JLocalServerTestClient {
                     System.err.println(String.format("STAT process was restarted. Sending the command [%s]", input));
                 
                 try{
-                    String reply = srv.sendMessageAndGetReply(input);
-                    System.out.println(reply);
+                    int ret = srv.sendMessageAndGetReply(input);
+                    stdOut = srv.getStdOut();
+                    stdErr = srv.getStdErr();
+                    System.out.println();
+                    //using (new SetConsoleTextColor(ConsoleColor.DarkGray))
+                    System.out.println(stdOut);
+                    
+                    if (ret == 0)
+                    {
+                        //using (new SetConsoleTextColor(ConsoleColor.Green))
+                        System.out.println("SUCCESS!");
+                    }
+                    else
+                    {
+                        //using (new SetConsoleTextColor(ConsoleColor.Red))
+                        {
+                            System.out.println("ERROR 0x" + Integer.toHexString(ret) + ":");
+                            System.out.println(stdErr);
+                        }
+                    }
                     System.out.println();
                 }
                 catch(TimeoutException e){
@@ -71,10 +94,15 @@ public class JLocalServerTestClient {
 
     private static boolean checkServer(StatServer srv, String[] args) throws IOException, InterruptedException, Exception {
         if (!srv.isAlive()) {
-            System.err.println("The server is not responding. Attempting to start a new STAT process.");
+            System.out.println("The server is not responding. Attempting to start a new STAT process.");
             srv.close();
             srv.startServer(args);
-            System.err.println("Successfully connected to a new STAT process");
+            String stdOut = srv.getStdOut();
+            String stdErr = srv.getStdErr();
+            // write the logging info from std out
+            //using (new SetConsoleTextColor(ConsoleColor.DarkGray))
+            System.out.println(stdOut);
+            System.out.println("Successfully connected to a new STAT process");
             return false;
         }
         return true;
