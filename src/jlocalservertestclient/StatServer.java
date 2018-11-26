@@ -44,9 +44,11 @@ public class StatServer {
         _stdErr = null;
     }
     
-    public void startServer(String[] args) throws IOException, InterruptedException, Exception {
+    public void startServer(String[] args) throws IOException, 
+            InterruptedException, Exception {
         _executorService = Executors.newFixedThreadPool(1);
-        _pipeName = "\\\\.\\Pipe\\jstat-" + java.util.UUID.randomUUID().toString();
+        _pipeName = "\\\\.\\Pipe\\jstat-" + 
+                java.util.UUID.randomUUID().toString();
         _statProcess = createSTATProcess(_pipeName, args);
         _stdOut = _statProcess.getInputStream();
         _stdErr = _statProcess.getErrorStream();
@@ -59,7 +61,8 @@ public class StatServer {
             return;
 
         try{
-            _executorService.shutdown(); // Disable new tasks from being submitted
+            // Disable new tasks from being submitted
+            _executorService.shutdown(); 
             try {
                 // Wait a while for existing tasks to terminate
                 if (!_executorService.awaitTermination(2, TimeUnit.SECONDS)) {
@@ -94,10 +97,10 @@ public class StatServer {
                 Thread thread = new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        System.out.println("TRACE: calling _pipe.close");
+                        //System.out.println("TRACE: calling _pipe.close");
                         try {
                             _pipe.close();
-                            System.out.println("TRACE: _pipe.close returned");
+                            //System.out.println("TRACE: _pipe.close returned");
                         }
                         catch(Exception e){
                             System.err.println("_pipe.close threw an exception");
@@ -136,9 +139,11 @@ public class StatServer {
                 _stdOut = null;
                 _stdErr = null;
                 
-                // closing the pipe should have closed the server, if it was in a healthy state
+                // closing the pipe should have closed the server, 
+                // if it was in a healthy state
                 if (!_statProcess.waitFor(1, TimeUnit.SECONDS)) {
-                    // if the stat process did not shut down cleanly when we closed the pipe, kill it now
+                    // if the stat process did not shut down cleanly 
+                    // when we closed the pipe, kill it now
                     System.err.println("TRACE: STAT process has not shut down. Killing it.");
                     _statProcess.destroyForcibly();
                 }
@@ -178,11 +183,15 @@ public class StatServer {
         return readAllAvailable(_stdErr);
     }
 
-    public void sendMessage(String msg) throws IOException, InterruptedException, ExecutionException, TimeoutException {
+    public void sendMessage(String msg) throws IOException, 
+            InterruptedException, ExecutionException, TimeoutException {
         sendMessage(msg, TIMEOUT_INTERVAL_SECONDS);
     }
     
-    public void sendMessage(String msg, int timeoutIntervalSeconds) throws IOException, InterruptedException, ExecutionException, TimeoutException {
+    public void sendMessage(String msg, int timeoutIntervalSeconds) 
+            throws IOException, InterruptedException, 
+            ExecutionException, TimeoutException {
+        
         Future future = _executorService.submit(new Callable<Void>() {
             public Void call() throws Exception {
                 _pipe.write(encodeUTF8(msg + "\n"));
@@ -200,12 +209,13 @@ public class StatServer {
         }
     }
 
-    public int getReply() throws IOException, InterruptedException, ExecutionException, TimeoutException {
+    public int getReply() throws IOException, InterruptedException, 
+            ExecutionException, TimeoutException {
         return getReply(TIMEOUT_INTERVAL_SECONDS);
     }
 
-    public int getReply(int timeoutIntervalSeconds) 
-            throws IOException, InterruptedException, ExecutionException, TimeoutException {
+    public int getReply(int timeoutIntervalSeconds) throws IOException, 
+            InterruptedException, ExecutionException, TimeoutException {
         
         Future future = _executorService.submit(new Callable<Integer>() {
             public Integer call() throws Exception {
@@ -219,7 +229,9 @@ public class StatServer {
                         }
                     }
                 } catch (EOFException e) {
-                    throw new EOFException("An error occurred while reading from the pipe. The STAT.EXE process may have ended.");
+                    throw new EOFException(
+                        "An error occurred while reading from the pipe. " +
+                        "The STAT.EXE process may have ended.");
                 }
                 return Integer.parseInt(decodeUTF8(bytes.toByteArray()));
             }
@@ -235,13 +247,15 @@ public class StatServer {
     }
 
     public int sendMessageAndGetReply(String msg, int timeoutIntervalSeconds) 
-            throws IOException, InterruptedException, ExecutionException, TimeoutException {
+            throws IOException, InterruptedException, 
+            ExecutionException, TimeoutException {
 
         sendMessage(msg, timeoutIntervalSeconds);
         return getReply(timeoutIntervalSeconds);
     }
     public int sendMessageAndGetReply(String msg) 
-            throws IOException, InterruptedException, ExecutionException, TimeoutException {
+            throws IOException, InterruptedException, 
+            ExecutionException, TimeoutException {
         
         return sendMessageAndGetReply(msg, TIMEOUT_INTERVAL_SECONDS);
     }
@@ -260,23 +274,27 @@ public class StatServer {
         return false;
     }
 
-    private static boolean firstTimeCreateProcess = true;
+    private static boolean _firstTimeCreateProcess = true;
     
-    private static Process createSTATProcess(String pipeName, String[] args) throws IOException {
-        String cmd = System.getenv("STACLI_HOME") + "\\STAT.EXE listen " + pipeName;
+    private static Process createSTATProcess(String pipeName, String[] args) 
+            throws IOException {
+        String cmd = System.getenv("STACLI_HOME") + 
+                "\\STAT.EXE listen " + pipeName;
         if (args.length > 0) 
             cmd += " " + String.join(" ", args);
         if (!cmd.contains("--log-file")) {
             cmd += " --log-file stat.log";
-            if(firstTimeCreateProcess)
+            if(_firstTimeCreateProcess)
                 System.out.println("STAT.EXE writing to log file 'stat.log'");
         }
-        firstTimeCreateProcess = false;
-        Process p = Runtime.getRuntime().exec(cmd, null, new File(System.getenv("STACLI_HOME")));
+        _firstTimeCreateProcess = false;
+        Process p = Runtime.getRuntime().exec(cmd, null, 
+                new File(System.getenv("STACLI_HOME")));
         return p;
     }
 
-    private static RandomAccessFile connectPipe(String pipeName) throws InterruptedException, Exception {
+    private static RandomAccessFile connectPipe(String pipeName) 
+            throws InterruptedException, Exception {
         // Must wait for STAT.EXE to create the named pipe before the open will succeed;
         // Here we will retry periodically for a while and then fail if it cannot be opened
         RandomAccessFile pipe = null;

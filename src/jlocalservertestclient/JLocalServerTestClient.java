@@ -10,6 +10,38 @@ import java.time.*;
 import java.util.*;
 import java.nio.charset.Charset;
 import java.util.concurrent.TimeoutException;
+import com.diogonunes.jcdp.color.ColoredPrinter;
+import com.diogonunes.jcdp.color.api.Ansi.*;
+
+/**
+ * ConsoleColorSetter intended for use with try-with-resources statement 
+ * to implement raii pattern and auto reset the console back to defaults 
+ * after autoclose
+ * 
+ * @author pbarnes
+ */
+class ConsoleColorSetter implements AutoCloseable, Closeable {
+    private ColoredPrinter _printer;
+    
+    public ConsoleColorSetter(FColor color){
+        init(Attribute.NONE, color, BColor.NONE);
+    }
+    public ConsoleColorSetter(Attribute attr, FColor fcolor){
+        init(attr, fcolor, BColor.NONE);
+    }
+    public ConsoleColorSetter(Attribute attr, FColor fcolor, BColor bcolor){
+        init(attr, fcolor, bcolor);
+    }
+    private void init(Attribute attr, FColor fcolor, BColor bcolor){
+        _printer = new ColoredPrinter.Builder(1, false)
+            .attribute(attr).foreground(fcolor).background(bcolor).build();
+        _printer.print(""); // empty print to get the ColoredPrinter to set the console color properties 
+    }
+            
+    public void close(){
+        _printer.clear();
+    }
+}
 
 /**
  *
@@ -21,6 +53,7 @@ public class JLocalServerTestClient {
      * @param args the command line arguments
      */
     public static void main(String[] args) {
+        
         StatServer srv=null;
         try {
             if (args.length > 0 && (args[0] == "-h" || args[0] == "--help")) {
@@ -37,9 +70,10 @@ public class JLocalServerTestClient {
             String stdErr = srv.getStdErr();
             
             // write the logging info from std out
-            //using (new SetConsoleTextColor(ConsoleColor.DarkGray))
-            System.out.println(stdOut);
-
+            try (ConsoleColorSetter c = new ConsoleColorSetter(Attribute.LIGHT, FColor.BLACK)) {
+                System.out.println(stdOut);
+            }            
+            
             Scanner stdin = new Scanner(System.in);
 
             while (true) {
@@ -57,18 +91,19 @@ public class JLocalServerTestClient {
                     stdOut = srv.getStdOut();
                     stdErr = srv.getStdErr();
                     System.out.println();
-                    //using (new SetConsoleTextColor(ConsoleColor.DarkGray))
-                    System.out.println(stdOut);
+                    try (ConsoleColorSetter c = new ConsoleColorSetter(Attribute.LIGHT, FColor.BLACK)) {
+                        System.out.println(stdOut);
+                    }
                     
                     if (ret == 0)
                     {
-                        //using (new SetConsoleTextColor(ConsoleColor.Green))
-                        System.out.println("SUCCESS!");
+                        try (ConsoleColorSetter c = new ConsoleColorSetter(Attribute.LIGHT, FColor.GREEN)) {
+                            System.out.println("SUCCESS!");
+                        }
                     }
                     else
                     {
-                        //using (new SetConsoleTextColor(ConsoleColor.Red))
-                        {
+                        try (ConsoleColorSetter c = new ConsoleColorSetter(Attribute.LIGHT, FColor.RED)) {
                             System.out.println("ERROR 0x" + Integer.toHexString(ret) + ":");
                             System.out.println(stdErr);
                         }
@@ -99,9 +134,11 @@ public class JLocalServerTestClient {
             srv.startServer(args);
             String stdOut = srv.getStdOut();
             String stdErr = srv.getStdErr();
+
             // write the logging info from std out
-            //using (new SetConsoleTextColor(ConsoleColor.DarkGray))
-            System.out.println(stdOut);
+            try (ConsoleColorSetter c = new ConsoleColorSetter(Attribute.LIGHT, FColor.BLACK)) {
+                System.out.println(stdOut);
+            }
             System.out.println("Successfully connected to a new STAT process");
             return false;
         }
