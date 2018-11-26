@@ -141,7 +141,7 @@ public class StatServer {
                 
                 // closing the pipe should have closed the server, 
                 // if it was in a healthy state
-                if (!_statProcess.waitFor(1, TimeUnit.SECONDS)) {
+                if (!_statProcess.waitFor(5, TimeUnit.SECONDS)) {
                     // if the stat process did not shut down cleanly 
                     // when we closed the pipe, kill it now
                     System.err.println("TRACE: STAT process has not shut down. Killing it.");
