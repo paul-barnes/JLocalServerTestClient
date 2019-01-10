@@ -64,7 +64,7 @@ public class JLocalServerTestClient {
             }
 
             srv = new StatServer();
-            srv.startServer(args);
+            srv.startServer(System.getenv("STACLI_HOME"), args);
 
             String stdOut = srv.getStdOut();
             String stdErr = srv.getStdErr();
@@ -113,7 +113,7 @@ public class JLocalServerTestClient {
                 catch(TimeoutException e){
                     System.err.println("The operation timed out. Attempting to close STAT process and create a new one.");
                     srv.close();
-                    srv.startServer(args);
+                    srv.startServer(System.getenv("STACLI_HOME"), args);
                     System.err.println("Successfully connected to a new STAT process");
                 }
             }
@@ -131,7 +131,8 @@ public class JLocalServerTestClient {
         if (!srv.isAlive()) {
             System.out.println("The server is not responding. Attempting to start a new STAT process.");
             srv.close();
-            srv.startServer(args);
+            srv.startServer(System.getenv("STACLI_HOME"), args);
+
             String stdOut = srv.getStdOut();
             String stdErr = srv.getStdErr();
 
